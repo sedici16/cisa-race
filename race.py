@@ -82,6 +82,26 @@ BULLET_FIRE_INTERVAL = 10       # frame tra una raffica e la successiva (mentre 
 BULLET_SIDE_OFFSET = 10         # quanto sono distanziati i due colpi dal centro dell'auto
 BULLET_SCORE = 15               # punti per ogni auto nemica colpita
 
+# power-up acquistabili al pit stop
+SUPER_SHIELD_PRICE = 10
+SUPER_SHIELD_FRAMES = FPS * 10   # dura di piu' dello scudo normale e protegge anche dalle blindate
+
+TRIPLE_SHOT_PRICE = 11
+TRIPLE_SHOT_FRAMES = FPS * 7
+TRIPLE_SPEED = 14                # velocita' dei colpi laterali (orizzontale)
+PASTICCERIA_HP = 1                # colpi di sparo triplo per distruggere una pasticceria
+
+EXTRA_LIFE_PRICE = 12
+
+PIT_ITEMS = [
+    {"key": "super_shield", "name": "Super Scudo", "price": SUPER_SHIELD_PRICE,
+     "desc": "10s, protegge anche dalle blindate"},
+    {"key": "triple_shot", "name": "Sparo Triplo", "price": TRIPLE_SHOT_PRICE,
+     "desc": "7s, davanti + laterale, distrugge le pasticcerie"},
+    {"key": "extra_life", "name": "Vita Extra", "price": EXTRA_LIFE_PRICE,
+     "desc": "+1 vita"},
+]
+
 UFO_W, UFO_H = 70, 28          # mothership aliena stile Space Invaders
 UFO_SPEED = 4.8                # vola sempre da sinistra a destra
 UFO_Y = 46                     # altezza fissa vicino al bordo superiore
@@ -96,6 +116,29 @@ MOTO_W, MOTO_H = 22, 50        # moto pazza che sfreccia contromano ogni tanto
 MOTO_EXTRA_SPEED = 4.0         # quanto e' piu' veloce delle auto normali
 MOTO_WAIT_MIN = 500            # frame minimi prima della prossima moto
 MOTO_WAIT_MAX = 950            # frame massimi prima della prossima moto
+
+DONKEY_W, DONKEY_H = 64, 72    # asino grigio (grosso) che attraversa la strada perpendicolarmente
+DONKEY_SPEED = 2.0             # velocita' orizzontale, molto lenta (da sinistra a destra)
+DONKEY_FALL_SPEED = 3.5        # scende (non legata a eff, molto piu' lenta del traffico normale)
+                                # finche' non raggiunge DONKEY_ROW_Y, poi resta li' e continua solo
+                                # in orizzontale - da' qualche secondo per vederlo arrivare da in
+                                # alto prima che diventi un vero pericolo sulla riga dell'auto
+DONKEY_ROW_Y = 550              # altezza a cui si "ferma" (in linea con l'auto)
+DONKEY_WAIT_MIN = 400          # frame minimi prima della prossima apparizione
+DONKEY_WAIT_MAX = 800          # frame massimi prima della prossima apparizione
+
+PASTICCERIA_W, PASTICCERIA_H = 92, 118   # negozietto decorativo sul bordo strada
+PASTICCERIA_WAIT_MIN = 500      # frame minimi prima della prossima apparizione
+PASTICCERIA_WAIT_MAX = 1100     # frame massimi prima della prossima apparizione
+
+# Pit stop: piazzola che allarga la corsia (a sinistra), ci entri guidando e
+# si apre un negozio di power-up. Ricompare a intervalli casuali per tutta la
+# corsa, ogni volta tra 10 e 30 secondi dopo la precedente.
+PITSTOP_WAIT_MIN = FPS * 10       # attesa minima prima del prossimo pit stop
+PITSTOP_WAIT_MAX = FPS * 30       # attesa massima prima del prossimo pit stop
+PITSTOP_DURATION = FPS * 6        # per quanto resta aperta la piazzola se non ci entri
+PITSTOP_LANE_EXTRA = 110          # larghezza della piazzola oltre il bordo destro della strada
+PITSTOP_ENTER_FRAMES = FPS * 1.2  # durata della "frenata e parcheggio" prima che si apra il menu
 
 TOWNS = ["Borgotaro", "Berceto", "Pontremoli", "Filattiera", "Villafranca", "Aulla",
          "S. Stefano Magra", "Sarzana", "Luni", "Carrara", "Massa"]      # cartelli di citta' raggiunta, uno ogni TOWN_EVERY punti
@@ -285,6 +328,51 @@ def make_moto():
     return s
 
 
+def make_donkey():
+    """Asino grigio che attraversa la strada da sinistra a destra:
+    corpo grigio grosso con testa, orecchie lunghe, zampe e coda scure."""
+    s = pygame.Surface((DONKEY_W, DONKEY_H), pygame.SRCALPHA)
+    pygame.draw.ellipse(s, GREY, (10, 30, 44, 30))                # corpo
+    pygame.draw.circle(s, GREY, (48, 24), 9)                       # testa (a destra)
+    pygame.draw.polygon(s, GREY, [(54, 18), (56, 2), (49, 17)])    # orecchio sinistro (lungo)
+    pygame.draw.polygon(s, GREY, [(46, 17), (42, 1), (40, 18)])    # orecchio destro (lungo)
+    pygame.draw.circle(s, DARK, (46, 22), 2)                       # occhio
+    for zx in (13, 21, 35, 43):                                    # zampe
+        pygame.draw.rect(s, GREY, (zx, 56, 5, 14))
+    pygame.draw.line(s, DARK, (10, 42), (3, 34), 3)               # coda
+    return s
+
+
+def make_pasticceria():
+    """Pasticceria decorativa sul bordo strada: edificio con tettoia a righe
+    rosse e insegna col nome - puro sfondo, nessuna collisione col giocatore."""
+    w, h = PASTICCERIA_W, PASTICCERIA_H
+    s = pygame.Surface((w, h), pygame.SRCALPHA)
+    body_top = 46
+    pygame.draw.rect(s, LITE, (6, body_top, w - 12, h - body_top - 4))     # corpo edificio
+    pygame.draw.rect(s, DARK, (6, body_top, w - 12, h - body_top - 4), 2)
+    pygame.draw.polygon(s, DARK, [(2, body_top), (w // 2, 4), (w - 2, body_top)])  # tetto
+
+    awning_y = body_top + 4                          # tendina a righe sopra la vetrina
+    stripe_w = (w - 20) // 6
+    for i in range(6):
+        color = PROGRESS_DOT if i % 2 == 0 else LITE
+        pygame.draw.rect(s, color, (10 + i * stripe_w, awning_y, stripe_w, 10))
+    pygame.draw.polygon(s, DARK, [(10, awning_y + 10), (16, awning_y + 18), (10, awning_y + 18)])
+    pygame.draw.polygon(s, DARK, [(w - 10, awning_y + 10), (w - 16, awning_y + 18), (w - 10, awning_y + 18)])
+
+    pygame.draw.rect(s, DARK, (w // 2 - 10, h - 34, 20, 30))               # porta
+
+    font = pygame.font.Font(None, 15)
+    label = font.render("PASTICCERIA", True, DARK)
+    lbl_bg = pygame.Rect(0, 0, label.get_width() + 6, label.get_height() + 2)
+    lbl_bg.center = (w // 2, body_top - 8)
+    pygame.draw.rect(s, LITE, lbl_bg)
+    pygame.draw.rect(s, DARK, lbl_bg, 1)
+    s.blit(label, label.get_rect(center=lbl_bg.center))
+    return s
+
+
 def make_background():
     """Dithered dungeon-brick wall, tiled so it wraps seamlessly when scrolled
     vertically. Same trick as Game of Crowns."""
@@ -340,6 +428,8 @@ class Race:
         self.mitra_img = make_mitra()
         self.puddle_img = make_puddle()
         self.moto_img = make_moto()
+        self.donkey_img = make_donkey()
+        self.pasticceria_img = make_pasticceria()
         self.ufo_img = make_ufo()
         self.mushroom_img = make_mushroom()
         self.spike_img = make_spike()
@@ -383,6 +473,8 @@ class Race:
                 right = left + CONSTRUCTION_ROAD_W - 12 - w
             else:
                 left = right - (CONSTRUCTION_ROAD_W - 12 - w)
+        elif self.pitstop_active:
+            left -= PITSTOP_LANE_EXTRA
         return left, right
 
     def reset(self):
@@ -417,6 +509,20 @@ class Race:
         self.construction_wait = random.randint(CONSTRUCTION_MIN_WAIT, CONSTRUCTION_MAX_WAIT)
         self.construction_segment_done = set()  # traccia quali segmenti hanno gia' avuto i lavori
 
+        self.pitstop_wait = random.randint(PITSTOP_WAIT_MIN, PITSTOP_WAIT_MAX)  # deve
+        self.pitstop_active = False     # esistere prima della prima _lane_bounds() qui sotto
+        self.pitstop_timer = 0
+        self.pitstop_entering = False   # fase di frenata/parcheggio prima del menu
+        self.pitstop_enter_timer = 0
+        self.pitstop_target_x = 0.0
+        self.pitstop_cursor = 0
+        self.pitstop_nav_cooldown = 0
+        self.pitstop_msg = ""            # messaggio temporaneo nel menu (es. "monete insufficienti")
+
+        self.super_shield_timer = 0
+        self.triple_timer = 0
+        self.triple_fire_cooldown = 0
+
         lo, hi = self._lane_bounds()
         self.enemies = [
             self._new_enemy(random.uniform(lo, hi), -200.0 - i * 260)
@@ -443,6 +549,12 @@ class Race:
         self.moto = None
         self.moto_wait = random.randint(MOTO_WAIT_MIN, MOTO_WAIT_MAX)
 
+        self.donkey = None
+        self.donkey_wait = FPS * 2     # il primo asino arriva subito, dopo 2 secondi dall'inizio
+
+        self.pasticceria = None        # {x, y, side} decorazione sul bordo strada
+        self.pasticceria_wait = random.randint(PASTICCERIA_WAIT_MIN, PASTICCERIA_WAIT_MAX)
+
         self.ufo = None
         self.ufo_wait = random.randint(UFO_WAIT_MIN, UFO_WAIT_MAX)
         self.mushrooms = []         # {x, y, kind} funghetti / spikes lanciati dalla mothership
@@ -455,6 +567,7 @@ class Race:
         self.record_timer = 0
         self.start_max = self.max_score
         self.beaten_record = False
+        self.anim_frame = 0
 
     def _filter_construction_zone(self):
         """Sposta (non elimina) nemici, monete, scudi, mitre e pozze che si
@@ -517,7 +630,7 @@ class Race:
                 self.update()
             elif self.state == "CRASH":
                 self.crash_step()
-            if self.state not in ("PAUSE", "SELECT_CAR"):
+            if self.state not in ("PAUSE", "SELECT_CAR", "PITSTOP"):
                 self.tick_particles()
             self.draw()
             self.present()
@@ -550,6 +663,16 @@ class Race:
                     elif ev.key == pygame.K_SPACE:
                         self.state = "PLAY"
                         self.reset()
+                elif self.state == "PITSTOP":
+                    n = len(PIT_ITEMS) + 1
+                    if ev.key in (pygame.K_UP, pygame.K_LEFT, pygame.K_w, pygame.K_a):
+                        self.pitstop_cursor = (self.pitstop_cursor - 1) % n
+                        self.pitstop_msg = ""
+                    elif ev.key in (pygame.K_DOWN, pygame.K_RIGHT, pygame.K_s, pygame.K_d):
+                        self.pitstop_cursor = (self.pitstop_cursor + 1) % n
+                        self.pitstop_msg = ""
+                    elif ev.key == pygame.K_SPACE:
+                        self._pitstop_confirm()
                 elif ev.key == pygame.K_SPACE:
                     self._toggle()
                 elif ev.key == pygame.K_r and self.state in ("OVER", "WIN"):
@@ -559,6 +682,8 @@ class Race:
                 if self.state == "SELECT_CAR":
                     self.state = "PLAY"
                     self.reset()
+                elif self.state == "PITSTOP":
+                    self._pitstop_confirm()
                 elif self.state != "PLAY":
                     self._toggle()
         if self.state == "SELECT_CAR":
@@ -566,6 +691,18 @@ class Race:
                 self.selected_car = (self.selected_car - 1) % 3
             if kiosk_joy.right():
                 self.selected_car = (self.selected_car + 1) % 3
+        elif self.state == "PITSTOP":
+            n = len(PIT_ITEMS) + 1
+            if self.pitstop_nav_cooldown > 0:
+                self.pitstop_nav_cooldown -= 1
+            elif kiosk_joy.up():
+                self.pitstop_cursor = (self.pitstop_cursor - 1) % n
+                self.pitstop_msg = ""
+                self.pitstop_nav_cooldown = 12
+            elif kiosk_joy.down():
+                self.pitstop_cursor = (self.pitstop_cursor + 1) % n
+                self.pitstop_msg = ""
+                self.pitstop_nav_cooldown = 12
 
     def _toggle(self):
         if self.state == "PLAY":
@@ -575,7 +712,32 @@ class Race:
         elif self.state in ("OVER", "WIN"):
             self.reset()
 
+    def _pitstop_confirm(self):
+        """Conferma la voce selezionata nel menu pit stop: l'ultima voce e'
+        sempre "Esci", le altre sono gli acquisti in PIT_ITEMS."""
+        if self.pitstop_cursor >= len(PIT_ITEMS):
+            self.state = "PLAY"
+            return
+        item = PIT_ITEMS[self.pitstop_cursor]
+        if self.coins_got < item["price"]:
+            self.pitstop_msg = "Monete insufficienti! ({}/{})".format(self.coins_got, item["price"])
+            return
+        self.coins_got -= item["price"]
+        key = item["key"]
+        if key == "super_shield":
+            self.super_shield_timer = SUPER_SHIELD_FRAMES
+        elif key == "triple_shot":
+            self.triple_timer = TRIPLE_SHOT_FRAMES
+            self.triple_fire_cooldown = 0
+        elif key == "extra_life":
+            self.lives += 1
+        self.pitstop_msg = "{} acquistato!".format(item["name"])
+        self.state = "PLAY"
+
     def update(self):
+        if self.pitstop_entering:
+            self._update_pitstop_entering()
+            return
         keys = pygame.key.get_pressed()
         boost = keys[pygame.K_w] or keys[pygame.K_UP] or kiosk_joy.up() or kiosk_joy.action_held()
         if self.boost_timer > 0:
@@ -584,6 +746,10 @@ class Race:
             self.shield_timer -= 1
         if self.mitra_timer > 0:
             self.mitra_timer -= 1
+        if self.super_shield_timer > 0:
+            self.super_shield_timer -= 1
+        if self.triple_timer > 0:
+            self.triple_timer -= 1
         if self.hit_invuln > 0:
             self.hit_invuln -= 1
 
@@ -603,6 +769,19 @@ class Race:
                 self.construction_timer = CONSTRUCTION_DURATION
                 self._filter_construction_zone()
                 self.construction_wait = random.randint(CONSTRUCTION_MIN_WAIT, CONSTRUCTION_MAX_WAIT)
+
+        # pit stop: ricompare a caso ogni 10-30 secondi
+        if self.pitstop_active:
+            self.pitstop_timer -= 1
+            if self.pitstop_timer <= 0:
+                self.pitstop_active = False
+                self.pitstop_wait = random.randint(PITSTOP_WAIT_MIN, PITSTOP_WAIT_MAX)
+        else:
+            self.pitstop_wait -= 1
+            if self.pitstop_wait <= 0:
+                self.pitstop_active = True
+                self.pitstop_timer = PITSTOP_DURATION
+
         eff = self.speed + (BOOST_EXTRA if boost else 0.0)
         if self.boost_timer > 0:
             eff += self.speed * 0.25
@@ -619,6 +798,14 @@ class Race:
             self.px += math.sin(self.slip * 0.5) * 2.4      # skid sway
         lo, hi = self._lane_bounds()
         self.px = max(lo, min(self.px, hi))
+
+        if self.pitstop_active and self.px < self.road_left:
+            self.pitstop_active = False
+            self.pitstop_wait = random.randint(PITSTOP_WAIT_MIN, PITSTOP_WAIT_MAX)
+            self.pitstop_entering = True
+            self.pitstop_enter_timer = PITSTOP_ENTER_FRAMES
+            self.pitstop_target_x = self.road_left - PITSTOP_LANE_EXTRA / 2 - self.player_car_w / 2
+            return
 
         self.scroll += eff
         pr = pygame.Rect(int(self.px), int(self.py), self.player_car_w, self.player_car_h)
@@ -644,16 +831,33 @@ class Race:
             if self.mitra_fire_cooldown <= 0:
                 self.mitra_fire_cooldown = BULLET_FIRE_INTERVAL
                 cx = self.px + CAR_W / 2
-                self.bullets.append({"x": cx - BULLET_SIDE_OFFSET - BULLET_W / 2, "y": self.py})
-                self.bullets.append({"x": cx + BULLET_SIDE_OFFSET - BULLET_W / 2, "y": self.py})
+                self.bullets.append({"x": cx - BULLET_SIDE_OFFSET - BULLET_W / 2, "y": self.py, "kind": "mitra"})
+                self.bullets.append({"x": cx + BULLET_SIDE_OFFSET - BULLET_W / 2, "y": self.py, "kind": "mitra"})
 
-        # proiettili: risalgono la strada e distruggono la prima auto nemica colpita
+        # sparo triplo automatico (davanti + laterale) mentre e' attivo
+        if self.triple_timer > 0:
+            self.triple_fire_cooldown -= 1
+            if self.triple_fire_cooldown <= 0:
+                self.triple_fire_cooldown = BULLET_FIRE_INTERVAL
+                cx = self.px + CAR_W / 2
+                cy = self.py + CAR_H / 2
+                self.bullets.append({"x": cx - BULLET_W / 2, "y": self.py, "kind": "triple_front"})
+                self.bullets.append({"x": cx, "y": cy, "kind": "triple_side", "vx": -TRIPLE_SPEED})
+                self.bullets.append({"x": cx, "y": cy, "kind": "triple_side", "vx": TRIPLE_SPEED})
+
+        # proiettili: risalgono la strada (mitra/triple_front) o vanno di lato
+        # (triple_side) e distruggono auto nemiche, l'asino o le pasticcerie
         for b in list(self.bullets):
-            b["y"] -= eff + BULLET_SPEED    # sempre piu' veloce dell'auto, mai al contrario
-            if b["y"] < -BULLET_H - 10:
+            if b["kind"] == "triple_side":
+                b["x"] += b["vx"]      # puramente orizzontale, niente scorrimento verticale
+            else:
+                b["y"] -= eff + BULLET_SPEED    # sempre piu' veloce dell'auto, mai al contrario
+            if (b["y"] < -BULLET_H - 10 or b["y"] > WIN_H + 20 or
+                    b["x"] < -BULLET_W - 20 or b["x"] > WIN_W + 20):
                 self.bullets.remove(b)
                 continue
             br = pygame.Rect(int(b["x"]), int(b["y"]), BULLET_W, BULLET_H)
+            hit_something = False
             for e in self.enemies:
                 er = pygame.Rect(int(e["x"]), int(e["y"]), CAR_W, CAR_H)
                 if br.colliderect(er):
@@ -667,14 +871,40 @@ class Race:
                         self.popups.append({"x": e["x"] + CAR_W / 2, "y": e["y"],
                                             "txt": "+{}".format(BULLET_SCORE), "life": 35})
                         self._respawn_enemy(e)
+                    hit_something = True
                     break
+            if not hit_something and b in self.bullets and b["kind"] != "mitra" and self.pasticceria is not None:
+                pr2 = pygame.Rect(int(self.pasticceria["x"]), int(self.pasticceria["y"]),
+                                   PASTICCERIA_W, PASTICCERIA_H)
+                if br.colliderect(pr2):
+                    self.bullets.remove(b)
+                    self.pasticceria["hp"] -= 1
+                    if self.pasticceria["hp"] <= 0:
+                        self.score += BULLET_SCORE
+                        self.popups.append({"x": self.pasticceria["x"] + PASTICCERIA_W / 2,
+                                            "y": self.pasticceria["y"] + PASTICCERIA_H / 2,
+                                            "txt": "PASTICCERIA DISTRUTTA! +{}".format(BULLET_SCORE), "life": 45})
+                        self.pasticceria = None
+                        self.pasticceria_wait = random.randint(PASTICCERIA_WAIT_MIN, PASTICCERIA_WAIT_MAX)
+                    hit_something = True
+            if hit_something or b not in self.bullets:
+                continue
+            if self.donkey is not None:
+                dr = pygame.Rect(int(self.donkey["x"]), int(self.donkey["y"]), DONKEY_W, DONKEY_H)
+                if br.colliderect(dr):
+                    self.bullets.remove(b)
+                    self.score += BULLET_SCORE
+                    self.popups.append({"x": self.donkey["x"] + DONKEY_W / 2, "y": self.donkey["y"],
+                                        "txt": "+{}".format(BULLET_SCORE), "life": 35})
+                    self.donkey = None
+                    self.donkey_wait = random.randint(DONKEY_WAIT_MIN, DONKEY_WAIT_MAX)
 
         # oncoming cars
         for e in self.enemies:
             e["y"] += eff
             er = pygame.Rect(int(e["x"]), int(e["y"]), CAR_W, CAR_H)
             if pr.colliderect(er) and self.hit_invuln <= 0:
-                if self.shield_timer > 0 and not e["armored"]:
+                if self.super_shield_timer > 0 or (self.shield_timer > 0 and not e["armored"]):
                     self._respawn_enemy(e)
                     continue
                 alive = self.begin_crash()
@@ -701,7 +931,7 @@ class Race:
             self.moto["y"] += eff + MOTO_EXTRA_SPEED
             mr = pygame.Rect(int(self.moto["x"]), int(self.moto["y"]), MOTO_W, MOTO_H)
             if pr.colliderect(mr) and self.hit_invuln <= 0:
-                if self.shield_timer > 0:
+                if self.shield_timer > 0 or self.super_shield_timer > 0:
                     self.moto = None
                     self.moto_wait = random.randint(MOTO_WAIT_MIN, MOTO_WAIT_MAX)
                 else:
@@ -713,6 +943,52 @@ class Race:
             elif self.moto["y"] > WIN_H + 20:
                 self.moto = None
                 self.moto_wait = random.randint(MOTO_WAIT_MIN, MOTO_WAIT_MAX)
+
+        # asino grigio: attraversa la strada orizzontalmente solo tra Filattiera
+        # e Villafranca (prima era anche prima di Borgotaro, e per un errore di
+        # indice compariva un tratto troppo presto, tra Pontremoli e Filattiera)
+        current_town = min(self.score // TOWN_EVERY + 1, len(TOWNS))
+        in_donkey_zone = current_town == 5
+        if self.donkey is None:
+            if in_donkey_zone:
+                self.donkey_wait -= 1
+                if self.donkey_wait <= 0:
+                    self.donkey = {"x": -DONKEY_W - 10.0, "y": -DONKEY_H - 20.0}
+        else:
+            self.donkey["x"] += DONKEY_SPEED
+            if self.donkey["y"] < DONKEY_ROW_Y:
+                self.donkey["y"] = min(DONKEY_ROW_Y, self.donkey["y"] + DONKEY_FALL_SPEED)
+            dr = pygame.Rect(int(self.donkey["x"]), int(self.donkey["y"]), DONKEY_W, DONKEY_H)
+            if pr.colliderect(dr) and self.hit_invuln <= 0:
+                if self.shield_timer > 0 or self.super_shield_timer > 0:
+                    self.donkey = None
+                    self.donkey_wait = random.randint(DONKEY_WAIT_MIN, DONKEY_WAIT_MAX)
+                else:
+                    alive = self.begin_crash()
+                    self.donkey = None
+                    self.donkey_wait = random.randint(DONKEY_WAIT_MIN, DONKEY_WAIT_MAX)
+                    if not alive:
+                        return
+            elif self.donkey["x"] > WIN_W + 10 or self.donkey["y"] > WIN_H + 20:
+                self.donkey = None
+                self.donkey_wait = random.randint(DONKEY_WAIT_MIN, DONKEY_WAIT_MAX)
+
+        # pasticceria: puro sfondo decorativo sul bordo strada, scorre con la
+        # strada come le altre scenografie - non collide mai col giocatore
+        if self.pasticceria is None:
+            self.pasticceria_wait -= 1
+            if self.pasticceria_wait <= 0:
+                side = random.choice(("left", "right"))
+                if side == "left":
+                    x = random.uniform(4, self.road_left - PASTICCERIA_W - 4)
+                else:
+                    x = random.uniform(self.road_right + 4, WIN_W - PASTICCERIA_W - 4)
+                self.pasticceria = {"x": x, "y": -PASTICCERIA_H - 20.0, "hp": PASTICCERIA_HP}
+        else:
+            self.pasticceria["y"] += eff
+            if self.pasticceria["y"] > WIN_H + 20:
+                self.pasticceria = None
+                self.pasticceria_wait = random.randint(PASTICCERIA_WAIT_MIN, PASTICCERIA_WAIT_MAX)
 
         # coins
         for c in self.coins:
@@ -795,7 +1071,7 @@ class Race:
                     self.boost_timer = MUSHROOM_BOOST_FRAMES
                     self.popups.append({"x": self.px + CAR_W / 2, "y": self.py - 6,
                                         "txt": "FUNGHETTO! VIA!", "life": 40})
-                elif self.shield_timer > 0:
+                elif self.shield_timer > 0 or self.super_shield_timer > 0:
                     self.popups.append({"x": self.px + CAR_W / 2, "y": self.py - 6,
                                         "txt": "SCUDO!", "life": 40})
                 elif self.hit_invuln > 0:
@@ -828,6 +1104,20 @@ class Race:
                     self.max_score = self.score
                 self._save_hs()
                 return
+
+    def _update_pitstop_entering(self):
+        """Breve frenata e parcheggio: il mondo rallenta fino a fermarsi e
+        l'auto scivola dolcemente nel posto auto, poi si apre il menu."""
+        self.pitstop_enter_timer -= 1
+        progress = 1.0 - max(0, self.pitstop_enter_timer) / float(PITSTOP_ENTER_FRAMES)
+        eff = self.speed * (1.0 - progress)      # rallenta fino a fermarsi
+        self.scroll += eff
+        self.px += (self.pitstop_target_x - self.px) * 0.12   # scivola verso il posto auto
+        if self.pitstop_enter_timer <= 0:
+            self.pitstop_entering = False
+            self.pitstop_cursor = 0
+            self.pitstop_msg = ""
+            self.state = "PITSTOP"
 
     def begin_crash(self):
         self.lives -= 1
@@ -898,6 +1188,15 @@ class Race:
         pygame.draw.rect(s, LITE, (self.road_left, 0, 4, WIN_H))
         pygame.draw.rect(s, LITE, (self.road_right - 4, 0, 4, WIN_H))
 
+        if self.pitstop_active or self.pitstop_entering:   # PROTOTIPO: piazzola a sinistra
+            pygame.draw.rect(s, DARK, (self.road_left - PITSTOP_LANE_EXTRA, 0, PITSTOP_LANE_EXTRA, WIN_H))
+            pygame.draw.rect(s, BLUE, (self.road_left - PITSTOP_LANE_EXTRA, 0, 4, WIN_H))
+            label = self.mid_font.render("PIT STOP", True, BLUE)
+            s.blit(label, label.get_rect(center=(self.road_left - PITSTOP_LANE_EXTRA // 2, 70)))
+
+        if self.pasticceria is not None:
+            s.blit(self.pasticceria_img, (int(self.pasticceria["x"]), int(self.pasticceria["y"])))
+
         off = int(self.scroll) % 48
         for y in range(-48 + off, WIN_H, 48):
             pygame.draw.rect(s, LITE, (self.road_left + 10, y, 4, 16))
@@ -933,6 +1232,8 @@ class Race:
             s.blit(img, (int(e["x"]), int(e["y"])))
         if self.moto is not None:
             s.blit(self.moto_img, (int(self.moto["x"]), int(self.moto["y"])))
+        if self.donkey is not None:
+            s.blit(self.donkey_img, (int(self.donkey["x"]), int(self.donkey["y"])))
         if self.ufo is not None:
             s.blit(self.ufo_img, (int(self.ufo["x"]), int(self.ufo["y"])))
         for m in self.mushrooms:
@@ -954,6 +1255,10 @@ class Race:
                 pulse = 3 if (self.shield_timer // 4) % 2 == 0 else 1
                 cx, cy = int(self.px + self.player_car_w / 2), int(self.py + self.player_car_h / 2)
                 pygame.draw.circle(s, LITE, (cx, cy), self.player_car_h // 2 + 8, pulse)
+            if self.super_shield_timer > 0:
+                pulse = 3 if (self.super_shield_timer // 4) % 2 == 0 else 1
+                cx, cy = int(self.px + self.player_car_w / 2), int(self.py + self.player_car_h / 2)
+                pygame.draw.circle(s, BLUE, (cx, cy), self.player_car_h // 2 + 12, pulse)
 
         for pop in self.popups:
             if pop["life"] % 6 != 1:                       # slight flicker as it fades
@@ -978,6 +1283,12 @@ class Race:
         if self.mitra_timer > 0:
             sec_left = self.mitra_timer // FPS + 1
             s.blit(self.hud_font.render("MITRA {}".format(sec_left), True, LITE), (14, 152))
+        if self.super_shield_timer > 0:
+            sec_left = self.super_shield_timer // FPS + 1
+            s.blit(self.hud_font.render("SUPER SCUDO {}".format(sec_left), True, BLUE), (14, 180))
+        if self.triple_timer > 0:
+            sec_left = self.triple_timer // FPS + 1
+            s.blit(self.hud_font.render("SPARO TRIPLO {}".format(sec_left), True, PROGRESS_DOT), (14, 180))
 
         if self.record_timer > 0 and (self.record_timer // 6) % 2 == 0:
             r = self.mid_font.render("NUOVO RECORD!", True, LITE)
@@ -1013,6 +1324,8 @@ class Race:
                     "",
                     "Premi SPAZIO per continuare",
                 ])
+        elif self.state == "PITSTOP":
+            self._draw_pitstop_menu(s)
         elif self.state == "OVER":
             lines = ["Punteggio:  {}".format(self.score),
                      "Record:  {}".format(self.max_score),
@@ -1043,6 +1356,7 @@ class Race:
             self._draw_car_selection(s)
 
         kiosk_joy.blit_exit_hint(s)
+        self.anim_frame += 1
 
     def _draw_progress(self, s):
         """Barra laterale col percorso: una tacca per ogni tappa e un puntino
@@ -1096,6 +1410,44 @@ class Race:
                 s.blit(r, r.get_rect(center=(WIN_W // 2, y)))
             y += 40
 
+    def _draw_pitstop_menu(self, s):
+        """Menu del pit stop: lista acquisti con prezzo, cursore, e voce
+        finale per uscire. Naviga con su/giu (o stick), conferma con SPAZIO
+        (o un tasto)."""
+        veil = pygame.Surface((WIN_W, WIN_H), pygame.SRCALPHA)
+        veil.fill((13, 13, 18, 222))
+        s.blit(veil, (0, 0))
+
+        t = self.big_font.render("PIT STOP", True, BLUE)
+        s.blit(t, t.get_rect(center=(WIN_W // 2, 130)))
+
+        coins_txt = self.mid_font.render("Monete: {}".format(self.coins_got), True, LITE)
+        s.blit(coins_txt, coins_txt.get_rect(center=(WIN_W // 2, 190)))
+
+        rows = [(it["name"], it["price"], it["desc"]) for it in PIT_ITEMS] + [("Esci", None, "")]
+        y = 250
+        for i, (name, price, desc) in enumerate(rows):
+            selected = i == self.pitstop_cursor
+            color = BLUE if selected else LITE
+            label = "{}{}".format(name, "  -  {} monete".format(price) if price is not None else "")
+            if selected:
+                label = "> " + label
+            row = self.mid_font.render(label, True, color)
+            s.blit(row, row.get_rect(center=(WIN_W // 2, y)))
+            if desc and selected:
+                d = self.progress_font.render(desc, True, GREY)
+                s.blit(d, d.get_rect(center=(WIN_W // 2, y + 22)))
+            y += 56
+
+        if self.pitstop_msg:
+            m = self.mid_font.render(self.pitstop_msg, True, PROGRESS_DOT)
+            s.blit(m, m.get_rect(center=(WIN_W // 2, y + 10)))
+
+        hint = "Su/Giu: scegli   Un tasto: conferma" if kiosk_joy.has_stick() else \
+               "Su/Giu: scegli   SPAZIO: conferma"
+        hint_r = self.progress_font.render(hint, True, GREY)
+        s.blit(hint_r, hint_r.get_rect(center=(WIN_W // 2, WIN_H - 40)))
+
     def _draw_construction_sign(self, s):
         """Cartello di allerta lampeggiante per cantiere con strada ristretta:
         triangolo con punto esclamativo (ci sta sempre) + banner largo quanto
@@ -1125,8 +1477,12 @@ class Race:
         s.blit(veil, (0, 0))
 
         logo_center = (WIN_W // 2, 82)
-        shadow = _render_pixel_text(self.logo_font, "Cisa Race", PROGRESS_DOT)
-        s.blit(shadow, shadow.get_rect(center=(logo_center[0] + 6, logo_center[1] + 6)))
+        shimmer = (self.anim_frame // 2) % 6
+        if shimmer < 5:
+            offset_x = [0, 2, -2, 1, -1][shimmer]
+            offset_y = [0, 1, -1, 2, 1][shimmer]
+            shadow = _render_pixel_text(self.logo_font, "Cisa Race", PROGRESS_DOT)
+            s.blit(shadow, shadow.get_rect(center=(logo_center[0] + 6 + offset_x, logo_center[1] + 6 + offset_y)))
         logo = _render_pixel_text(self.logo_font, "Cisa Race", WHITE)
         s.blit(logo, logo.get_rect(center=logo_center))
 

@@ -8,7 +8,13 @@ dove i visitatori modificano un videogioco a parole con l'IA.
 
 Guida lungo l'Appennino da Borgotaro a Massa, schiva il traffico, raccogli
 monete e scudi, fai fuori le auto blindate con la mitragliatrice a doppio
-sparo, e attento ai cantieri stradali e alla moto contromano.
+sparo, e attento ai cantieri stradali, alla moto contromano e all'asino tra
+Filattiera e Villafranca.
+
+Ogni 10-30 secondi trovi un pit stop sul bordo strada: entraci per aprire un
+negozio dove spendere le monete raccolte in Super Scudo (protegge anche dalle
+blindate), Sparo Triplo (frontale + laterale, distrugge anche le pasticcerie
+decorative sul bordo strada) o una vita extra.
 
 ## Come si gioca
 
