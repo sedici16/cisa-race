@@ -19,7 +19,7 @@ decorative sul bordo strada) o una vita extra.
 ## Come si gioca
 
 ```sh
-pip install pygame
+pip install -r requirements.txt
 python race.py
 ```
 
