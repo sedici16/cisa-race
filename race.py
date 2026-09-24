@@ -70,6 +70,7 @@ SMOKE_R0, SMOKE_R1 = 3, 11   # raggio iniziale/finale (si allarga e si dirada)
 SHIELD_R = 13               # raggio dell'icona scudo
 SHIELD_COUNT = 1            # scudi presenti sulla strada contemporaneamente
 SHIELD_FRAMES = FPS * 3     # durata dell'invincibilita' dopo aver preso lo scudo
+PITSTOP_EXIT_SHIELD_FRAMES = FPS * 2   # scudo gratis quando si rientra in strada dal pit stop
 
 MITRA_R = 11                # raggio della mitra doppia
 MITRA_COUNT = 1             # mitras presenti sulla strada contemporaneamente
@@ -86,7 +87,7 @@ BULLET_SCORE = 15               # punti per ogni auto nemica colpita
 SUPER_SHIELD_PRICE = 10
 SUPER_SHIELD_FRAMES = FPS * 10   # dura di piu' dello scudo normale e protegge anche dalle blindate
 
-TRIPLE_SHOT_PRICE = 11
+TRIPLE_SHOT_PRICE = 15
 TRIPLE_SHOT_FRAMES = FPS * 7
 TRIPLE_SPEED = 14                # velocita' dei colpi laterali (orizzontale)
 PASTICCERIA_HP = 1                # colpi di sparo triplo per distruggere una pasticceria
@@ -102,6 +103,11 @@ PIT_ITEMS = [
      "desc": "+1 vita"},
 ]
 
+# prezzi del pit stop personalizzati per auto (indice = selected_car:
+# 0 Maggiolino, 1 BMW, 2 Volvo); una voce assente usa il prezzo base sopra
+SUPER_SHIELD_PRICE_BY_CAR = {0: 20, 1: 25, 2: 30}
+EXTRA_LIFE_PRICE_BY_CAR = {0: 20, 1: 25, 2: 30}
+
 UFO_W, UFO_H = 70, 28          # mothership aliena stile Space Invaders
 UFO_SPEED = 4.8                # vola sempre da sinistra a destra
 UFO_Y = 46                     # altezza fissa vicino al bordo superiore
@@ -111,6 +117,16 @@ MUSHROOM_W, MUSHROOM_H = 18, 16       # i "funghetti" lanciati dalla mothership
 MUSHROOM_DROP_EVERY = 45              # ogni quanti frame lancia un oggetto mentre e' in volo
 MUSHROOM_BOOST_FRAMES = FPS * 5       # il funghetto spinge l'auto per 5 secondi
 SPIKE_W, SPIKE_H = 20, 14             # gli "spikes" lanciati dalla mothership
+
+# ondata aliena ("ORDA"): scatta tra una citta' e l'altra, 15s di astronavi
+# a raffica che bombardano solo spikes; niente auto nemiche/cantieri/pitstop
+HORDE_DURATION = FPS * 7
+HORDE_UFO_COUNT = 3          # astronavi contemporanee sullo schermo durante l'ondata
+HORDE_UFO_WAIT_MIN = 35      # attesa minima tra un'astronave e la successiva durante l'ondata
+HORDE_UFO_WAIT_MAX = 70
+HORDE_UFO_SPEED = UFO_SPEED * 2.2
+HORDE_DROP_EVERY = 22        # lasciano cadere spikes piu' spesso del normale MUSHROOM_DROP_EVERY
+HORDE_SPEED_MULT = 1.15      # +15% velocita' effettiva durante l'ondata
 
 MOTO_W, MOTO_H = 22, 50        # moto pazza che sfreccia contromano ogni tanto
 MOTO_EXTRA_SPEED = 4.0         # quanto e' piu' veloce delle auto normali
@@ -156,6 +172,9 @@ COIN_R = 8
 PUD_W, PUD_H = 72, 28
 
 HS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "high_scores.txt")
+LIFETIME_COINS_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "lifetime_coins.txt")
+GOLF_ANNOUNCED_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "golf_announced.txt")
+GOLF_UNLOCK_COINS = 200   # monete totali (tra tutte le partite) per sbloccare la Golf Cabrio
 
 
 def make_player_car():
@@ -192,6 +211,20 @@ def make_player_car_volvo():
     for wy in (18, VOLVO_H - 23):                                   # wheels
         pygame.draw.rect(s, DARK, (0, wy, 5, 12))
         pygame.draw.rect(s, DARK, (VOLVO_W - 5, wy, 5, 12))
+    return s
+
+
+def make_player_car_golf():
+    """Golf Cabrio: cabrio sbloccabile, capote abbassata - niente vetri
+    scuri separati come le altre auto, solo l'abitacolo a vista e la
+    capote ripiegata dietro."""
+    s = pygame.Surface((CAR_W, CAR_H), pygame.SRCALPHA)
+    pygame.draw.rect(s, PROGRESS_DOT, (3, 2, CAR_W - 6, CAR_H - 4))     # body (rosso)
+    pygame.draw.rect(s, DARK, (8, 10, CAR_W - 16, CAR_H - 34))         # abitacolo a vista
+    pygame.draw.rect(s, DARK, (6, CAR_H - 22, CAR_W - 12, 8))          # capote ripiegata
+    for wy in (13, CAR_H - 25):
+        pygame.draw.rect(s, DARK, (0, wy, 4, 13))
+        pygame.draw.rect(s, DARK, (CAR_W - 4, wy, 4, 13))
     return s
 
 
@@ -307,7 +340,7 @@ def make_spike():
     s = pygame.Surface((SPIKE_W, SPIKE_H), pygame.SRCALPHA)
     pygame.draw.rect(s, DARK, (0, SPIKE_H - 4, SPIKE_W, 4))
     for x0 in range(0, SPIKE_W, 5):
-        pygame.draw.polygon(s, LITE, [
+        pygame.draw.polygon(s, YELLOW, [
             (x0, SPIKE_H - 4), (x0 + 2, 0), (x0 + 4, SPIKE_H - 4),
         ])
     return s
@@ -420,6 +453,7 @@ class Race:
         self.player_img_beetle = make_player_car()
         self.player_car_bmw = make_player_car_bmw()
         self.player_car_volvo = make_player_car_volvo()
+        self.player_car_golf = make_player_car_golf()
         self.player_img = self.player_img_beetle
         self.enemy_img = make_enemy_car()
         self.enemy_img_armored = make_enemy_car_armored()
@@ -444,6 +478,12 @@ class Race:
         self.road_right = self.road_left + ROAD_W
 
         self.max_score = self._load_hs()
+        self.lifetime_coins = self._load_lifetime_coins()
+        self.golf_unlocked = self.lifetime_coins >= GOLF_UNLOCK_COINS
+        self.golf_announced = self._load_golf_announced()
+        # se sbloccata ma non ancora "vista" nel menu (anche in una sessione
+        # precedente, se il gioco e' stato chiuso/riavviato nel frattempo)
+        self.golf_newly_unlocked = self.golf_unlocked and not self.golf_announced
         self.selected_car = 0
         self.reset()
         self.state = "SELECT_CAR"
@@ -464,6 +504,39 @@ class Race:
         except OSError:
             pass
 
+    def _car_unlocked(self, idx):
+        return idx != 3 or self.golf_unlocked
+
+    def _dismiss_golf_banner(self):
+        if self.golf_newly_unlocked:
+            self.golf_newly_unlocked = False
+            self.golf_announced = True
+            self._save_golf_announced()
+
+    def _load_lifetime_coins(self):
+        try:
+            with open(LIFETIME_COINS_PATH) as f:
+                return max(0, int(float(f.read().strip())))
+        except (OSError, ValueError):
+            return 0
+
+    def _save_lifetime_coins(self):
+        try:
+            with open(LIFETIME_COINS_PATH, "w") as f:
+                f.write(str(self.lifetime_coins))
+        except OSError:
+            pass
+
+    def _load_golf_announced(self):
+        return os.path.exists(GOLF_ANNOUNCED_PATH)
+
+    def _save_golf_announced(self):
+        try:
+            with open(GOLF_ANNOUNCED_PATH, "w") as f:
+                f.write("1")
+        except OSError:
+            pass
+
     # ------------------------------------------------------------- round setup
     def _lane_bounds(self, w=CAR_W):
         left = self.road_left + 6
@@ -478,31 +551,50 @@ class Race:
         return left, right
 
     def reset(self):
+        extra_lives = 0
+        self.car_coin_mult = 1.0
         if self.selected_car == 0:
             self.player_img = self.player_img_beetle
             self.player_car_w, self.player_car_h = CAR_W, CAR_H
+            self.car_speed_mult = 1.10   # Maggiolino: 10% piu veloce
+            self.car_slip_mult = 1.0
         elif self.selected_car == 1:
             self.player_img = self.player_car_bmw
             self.player_car_w, self.player_car_h = CAR_W, CAR_H
-        else:
+            self.car_speed_mult = 1.0
+            self.car_slip_mult = 0.5     # BMW: slitta meno nelle pozzanghere
+        elif self.selected_car == 2:
             self.player_img = self.player_car_volvo
             self.player_car_w, self.player_car_h = VOLVO_W, VOLVO_H
+            self.car_speed_mult = 0.95   # Volvo: 5% piu lenta
+            self.car_slip_mult = 1.0
+            extra_lives = 1               # ...ma una vita in piu
+        else:
+            self.player_img = self.player_car_golf
+            self.player_car_w, self.player_car_h = CAR_W, CAR_H
+            self.car_speed_mult = 1.0
+            self.car_slip_mult = 1.0
+            self.car_coin_mult = 1.2     # Golf Cabrio (sbloccabile): +20% monete
         self.score = 0
         self.coins_got = 0
         self.level = 0
-        self.speed = START_SPEED
+        self.speed = START_SPEED * self.car_speed_mult
         self.scroll = 0.0
         self.slip = 0
         self.shake = 0.0
         self.crash_timer = 0
         self.crash_pos = (0, 0)
-        self.lives = 3
+        self.lives = 3 + extra_lives
         self.hit_invuln = 0          # frame di invulnerabilita' dopo l'ultimo colpo
         self.state = "PLAY"                       # PLAY / PAUSE / CRASH / OVER / WIN
         self.px = (self.road_left + self.road_right) / 2 - self.player_car_w / 2
         self.py = WIN_H - self.player_car_h - 24
         self.town_idx = 0
         self.town_banner = None
+        self.horde_active = False
+        self.horde_timer = 0
+        self.horde_ufos = []        # {x, y, speed, drop_in} astronavi dello sciame durante l'ondata
+        self.horde_ufo_wait = 0
         self.construction_mode = False
         self.construction_side = "left"      # ridefinito a caso ogni volta che il cantiere appare
         self.construction_timer = 0
@@ -565,6 +657,8 @@ class Race:
         self.smoke = []              # {x, y, vx, vy, age, life} puff dallo scarico
         self.smoke_cooldown = 0
         self.record_timer = 0
+        self.amor_timer = 0
+        self.unlock_timer = 0
         self.start_max = self.max_score
         self.beaten_record = False
         self.anim_frame = 0
@@ -657,10 +751,11 @@ class Race:
                     self.quit()
                 elif self.state == "SELECT_CAR":
                     if ev.key in (pygame.K_LEFT, pygame.K_a):
-                        self.selected_car = (self.selected_car - 1) % 3
+                        self.selected_car = (self.selected_car - 1) % 4
                     elif ev.key in (pygame.K_RIGHT, pygame.K_d):
-                        self.selected_car = (self.selected_car + 1) % 3
-                    elif ev.key == pygame.K_SPACE:
+                        self.selected_car = (self.selected_car + 1) % 4
+                    elif ev.key == pygame.K_SPACE and self._car_unlocked(self.selected_car):
+                        self._dismiss_golf_banner()
                         self.state = "PLAY"
                         self.reset()
                 elif self.state == "PITSTOP":
@@ -679,7 +774,8 @@ class Race:
                     self.state = "SELECT_CAR"
                     self.selected_car = 0
             if kiosk_joy.is_action(ev):
-                if self.state == "SELECT_CAR":
+                if self.state == "SELECT_CAR" and self._car_unlocked(self.selected_car):
+                    self._dismiss_golf_banner()
                     self.state = "PLAY"
                     self.reset()
                 elif self.state == "PITSTOP":
@@ -688,9 +784,9 @@ class Race:
                     self._toggle()
         if self.state == "SELECT_CAR":
             if kiosk_joy.left():
-                self.selected_car = (self.selected_car - 1) % 3
+                self.selected_car = (self.selected_car - 1) % 4
             if kiosk_joy.right():
-                self.selected_car = (self.selected_car + 1) % 3
+                self.selected_car = (self.selected_car + 1) % 4
         elif self.state == "PITSTOP":
             n = len(PIT_ITEMS) + 1
             if self.pitstop_nav_cooldown > 0:
@@ -712,13 +808,26 @@ class Race:
         elif self.state in ("OVER", "WIN"):
             self.reset()
 
+    def _pit_items(self):
+        """PIT_ITEMS con i prezzi adattati all'auto scelta (self.selected_car)."""
+        items = []
+        for it in PIT_ITEMS:
+            price = it["price"]
+            if it["key"] == "super_shield":
+                price = SUPER_SHIELD_PRICE_BY_CAR.get(self.selected_car, price)
+            elif it["key"] == "extra_life":
+                price = EXTRA_LIFE_PRICE_BY_CAR.get(self.selected_car, price)
+            items.append({**it, "price": price})
+        return items
+
     def _pitstop_confirm(self):
         """Conferma la voce selezionata nel menu pit stop: l'ultima voce e'
         sempre "Esci", le altre sono gli acquisti in PIT_ITEMS."""
         if self.pitstop_cursor >= len(PIT_ITEMS):
+            self.shield_timer = max(self.shield_timer, PITSTOP_EXIT_SHIELD_FRAMES)
             self.state = "PLAY"
             return
-        item = PIT_ITEMS[self.pitstop_cursor]
+        item = self._pit_items()[self.pitstop_cursor]
         if self.coins_got < item["price"]:
             self.pitstop_msg = "Monete insufficienti! ({}/{})".format(self.coins_got, item["price"])
             return
@@ -732,6 +841,7 @@ class Race:
         elif key == "extra_life":
             self.lives += 1
         self.pitstop_msg = "{} acquistato!".format(item["name"])
+        self.shield_timer = max(self.shield_timer, PITSTOP_EXIT_SHIELD_FRAMES)
         self.state = "PLAY"
 
     def update(self):
@@ -753,6 +863,19 @@ class Race:
         if self.hit_invuln > 0:
             self.hit_invuln -= 1
 
+        # ondata aliena ("ORDA"): 15s di astronavi tra una citta' e l'altra,
+        # niente auto nemiche/cantieri/pitstop finche' non finisce
+        if self.horde_active:
+            self.horde_timer -= 1
+            if self.horde_timer <= 0:
+                self.horde_active = False
+                self.horde_ufos = []
+                lo, hi = self._lane_bounds()
+                self.enemies = [
+                    self._new_enemy(random.uniform(lo, hi), -200.0 - i * 260)
+                    for i in range(ENEMY_COUNT)
+                ]
+
         current_segment = self.score // TOWN_EVERY
         if self.construction_mode:
             self.construction_timer -= 1
@@ -760,7 +883,7 @@ class Race:
                 self.construction_mode = False
         else:
             self.construction_wait -= 1
-            if (self.construction_wait <= 0 and
+            if (self.construction_wait <= 0 and not self.horde_active and
                     current_segment in CONSTRUCTION_SEGMENTS and
                     current_segment not in self.construction_segment_done):
                 self.construction_segment_done.add(current_segment)
@@ -778,7 +901,7 @@ class Race:
                 self.pitstop_wait = random.randint(PITSTOP_WAIT_MIN, PITSTOP_WAIT_MAX)
         else:
             self.pitstop_wait -= 1
-            if self.pitstop_wait <= 0:
+            if self.pitstop_wait <= 0 and not self.horde_active:
                 self.pitstop_active = True
                 self.pitstop_timer = PITSTOP_DURATION
 
@@ -787,6 +910,8 @@ class Race:
             eff += self.speed * 0.25
         if self.mitra_timer > 0:
             eff *= MITRA_SPEED_BOOST
+        if self.horde_active:
+            eff *= HORDE_SPEED_MULT
 
         steer = PLAYER_STEER_SPEED * (0.45 if self.slip > 0 else 1.0)
         if keys[pygame.K_LEFT] or keys[pygame.K_a] or kiosk_joy.left():
@@ -873,6 +998,27 @@ class Race:
                         self._respawn_enemy(e)
                     hit_something = True
                     break
+            if not hit_something and b in self.bullets and self.ufo is not None:
+                ur = pygame.Rect(int(self.ufo["x"]), int(self.ufo["y"]), UFO_W, UFO_H)
+                if br.colliderect(ur):
+                    self.bullets.remove(b)
+                    self.score += BULLET_SCORE
+                    self.popups.append({"x": self.ufo["x"] + UFO_W / 2, "y": self.ufo["y"],
+                                        "txt": "+{}".format(BULLET_SCORE), "life": 35})
+                    self.ufo = None
+                    self.ufo_wait = random.randint(UFO_WAIT_MIN, UFO_WAIT_MAX)
+                    hit_something = True
+            if not hit_something and b in self.bullets and self.horde_ufos:
+                for u in list(self.horde_ufos):
+                    ur = pygame.Rect(int(u["x"]), int(u["y"]), UFO_W, UFO_H)
+                    if br.colliderect(ur):
+                        self.bullets.remove(b)
+                        self.score += BULLET_SCORE
+                        self.popups.append({"x": u["x"] + UFO_W / 2, "y": u["y"],
+                                            "txt": "+{}".format(BULLET_SCORE), "life": 35})
+                        self.horde_ufos.remove(u)
+                        hit_something = True
+                        break
             if not hit_something and b in self.bullets and b["kind"] != "mitra" and self.pasticceria is not None:
                 pr2 = pygame.Rect(int(self.pasticceria["x"]), int(self.pasticceria["y"]),
                                    PASTICCERIA_W, PASTICCERIA_H)
@@ -881,6 +1027,8 @@ class Race:
                     self.pasticceria["hp"] -= 1
                     if self.pasticceria["hp"] <= 0:
                         self.score += BULLET_SCORE
+                        self.lives += 1
+                        self.amor_timer = 150
                         self.popups.append({"x": self.pasticceria["x"] + PASTICCERIA_W / 2,
                                             "y": self.pasticceria["y"] + PASTICCERIA_H / 2,
                                             "txt": "PASTICCERIA DISTRUTTA! +{}".format(BULLET_SCORE), "life": 45})
@@ -995,11 +1143,21 @@ class Race:
             c["y"] += eff
             cr = pygame.Rect(int(c["x"]), int(c["y"]), COIN_R * 2, COIN_R * 2)
             if pr.colliderect(cr):
-                self.score += COIN_BONUS
+                bonus = int(round(COIN_BONUS * self.car_coin_mult))
+                self.score += bonus
                 self.coins_got += 1
                 self.popups.append({"x": c["x"] + COIN_R, "y": c["y"],
-                                    "txt": "+{}".format(COIN_BONUS), "life": 40})
+                                    "txt": "+{}".format(bonus), "life": 40})
                 self._recycle(c, COIN_R * 2, -260, -80)
+                if not self.golf_unlocked:
+                    self.lifetime_coins += 1
+                    self._save_lifetime_coins()
+                    if self.lifetime_coins >= GOLF_UNLOCK_COINS:
+                        self.golf_unlocked = True
+                        self.golf_newly_unlocked = True
+                        self.unlock_timer = 150
+                        self.popups.append({"x": self.px + CAR_W / 2, "y": self.py - 6,
+                                            "txt": "GOLF CABRIO SBLOCCATA!", "life": 60})
             elif c["y"] > WIN_H + 20:
                 self._recycle(c, COIN_R * 2, -260, -80)
 
@@ -1032,7 +1190,7 @@ class Race:
             p["y"] += eff
             prr = pygame.Rect(int(p["x"]), int(p["y"]) + 6, PUD_W, PUD_H - 12)
             if self.slip <= 0 and pr.colliderect(prr):
-                self.slip = SLIP_FRAMES
+                self.slip = int(SLIP_FRAMES * self.car_slip_mult)
                 self.popups.append({"x": self.px + CAR_W / 2, "y": self.py - 6,
                                     "txt": "SBANDA!", "life": 40})
             if p["y"] > WIN_H + 40:
@@ -1040,9 +1198,10 @@ class Race:
 
         # mothership aliena: attraversa lo schermo sempre da sinistra a destra
         if self.ufo is None:
-            self.ufo_wait -= 1
-            if self.ufo_wait <= 0:
-                self.ufo = {"x": -UFO_W, "y": UFO_Y, "drop_in": MUSHROOM_DROP_EVERY}
+            if not self.horde_active:
+                self.ufo_wait -= 1
+                if self.ufo_wait <= 0:
+                    self.ufo = {"x": -UFO_W, "y": UFO_Y, "drop_in": MUSHROOM_DROP_EVERY}
         else:
             self.ufo["x"] += UFO_SPEED
             self.ufo["drop_in"] -= 1
@@ -1058,6 +1217,31 @@ class Race:
             if self.ufo["x"] > WIN_W:
                 self.ufo = None
                 self.ufo_wait = random.randint(UFO_WAIT_MIN, UFO_WAIT_MAX)
+
+        # ondata: sciame di astronavi bidirezionale (sinistra->destra e viceversa)
+        if self.horde_active:
+            self.horde_ufo_wait -= 1
+            if self.horde_ufo_wait <= 0 and len(self.horde_ufos) < HORDE_UFO_COUNT:
+                self.horde_ufo_wait = random.randint(HORDE_UFO_WAIT_MIN, HORDE_UFO_WAIT_MAX)
+                direction = random.choice(("ltr", "rtl"))
+                self.horde_ufos.append({
+                    "x": -UFO_W if direction == "ltr" else WIN_W,
+                    "y": random.uniform(40, 96),
+                    "speed": HORDE_UFO_SPEED if direction == "ltr" else -HORDE_UFO_SPEED,
+                    "drop_in": HORDE_DROP_EVERY,
+                })
+            for u in list(self.horde_ufos):
+                u["x"] += u["speed"]
+                u["drop_in"] -= 1
+                if u["drop_in"] <= 0:
+                    u["drop_in"] = HORDE_DROP_EVERY
+                    self.mushrooms.append({
+                        "x": u["x"] + UFO_W / 2 - SPIKE_W / 2,
+                        "y": u["y"] + UFO_H,
+                        "kind": "spike",
+                    })
+                if u["x"] < -UFO_W - 10 or u["x"] > WIN_W + 10:
+                    self.horde_ufos.remove(u)
 
         # funghetti / spikes lanciati dalla mothership
         for m in list(self.mushrooms):
@@ -1087,7 +1271,7 @@ class Race:
         lvl = self.score // LEVEL_EVERY
         if lvl > self.level:
             self.level = lvl
-            self.speed = START_SPEED + SPEED_PER_LEVEL * self.level
+            self.speed = (START_SPEED + SPEED_PER_LEVEL * self.level) * self.car_speed_mult
         if not self.beaten_record and self.start_max > 0 and self.score > self.start_max:
             self.celebrate_record()
         if self.score > self.max_score:
@@ -1104,6 +1288,14 @@ class Race:
                     self.max_score = self.score
                 self._save_hs()
                 return
+            elif self.town_idx > 1 and not self.horde_active:
+                # tra una citta' e l'altra: ondata aliena (se una e' gia' in corso,
+                # non la si "ricarica" - continua fino alla sua naturale scadenza)
+                self.horde_active = True
+                self.horde_timer = HORDE_DURATION
+                self.construction_mode = False
+                self.pitstop_active = False
+                self.enemies = []
 
     def _update_pitstop_entering(self):
         """Breve frenata e parcheggio: il mondo rallenta fino a fermarsi e
@@ -1171,6 +1363,10 @@ class Race:
         self.smoke = [sm for sm in self.smoke if sm["age"] < SMOKE_LIFE]
         if self.record_timer > 0:
             self.record_timer -= 1
+        if self.amor_timer > 0:
+            self.amor_timer -= 1
+        if self.unlock_timer > 0:
+            self.unlock_timer -= 1
         if self.town_banner is not None:
             self.town_banner["life"] -= 1
             if self.town_banner["life"] <= 0:
@@ -1236,6 +1432,8 @@ class Race:
             s.blit(self.donkey_img, (int(self.donkey["x"]), int(self.donkey["y"])))
         if self.ufo is not None:
             s.blit(self.ufo_img, (int(self.ufo["x"]), int(self.ufo["y"])))
+        for u in self.horde_ufos:
+            s.blit(self.ufo_img, (int(u["x"]), int(u["y"])))
         for m in self.mushrooms:
             img = self.mushroom_img if m["kind"] == "mushroom" else self.spike_img
             s.blit(img, (int(m["x"]), int(m["y"])))
@@ -1289,10 +1487,26 @@ class Race:
         if self.triple_timer > 0:
             sec_left = self.triple_timer // FPS + 1
             s.blit(self.hud_font.render("SPARO TRIPLO {}".format(sec_left), True, PROGRESS_DOT), (14, 180))
+        if not self.golf_unlocked:
+            missing = max(0, GOLF_UNLOCK_COINS - self.lifetime_coins)
+            s.blit(self.progress_font.render(
+                "GOLF CABRIO: -{} monete".format(missing), True, LITE), (14, 208))
 
         if self.record_timer > 0 and (self.record_timer // 6) % 2 == 0:
             r = self.mid_font.render("NUOVO RECORD!", True, LITE)
             s.blit(r, r.get_rect(center=(WIN_W // 2, 40)))
+
+        if self.amor_timer > 0 and (self.amor_timer // 6) % 2 == 0:
+            a = self.big_font.render("AMOR", True, PROGRESS_DOT)
+            s.blit(a, a.get_rect(center=(WIN_W // 2, WIN_H // 2 - 60)))
+
+        if self.unlock_timer > 0 and (self.unlock_timer // 6) % 2 == 0:
+            u = self.mid_font.render("GOLF CABRIO SBLOCCATA!", True, LITE)
+            s.blit(u, u.get_rect(center=(WIN_W // 2, 40)))
+
+        if self.horde_active and (self.anim_frame // 6) % 2 == 0:
+            o = self.big_font.render("ORDA!", True, PROGRESS_DOT)
+            s.blit(o, o.get_rect(center=(WIN_W // 2, 40)))
 
         if self.town_banner is not None:
             self._draw_sign(s, self.town_banner["txt"])
@@ -1424,7 +1638,7 @@ class Race:
         coins_txt = self.mid_font.render("Monete: {}".format(self.coins_got), True, LITE)
         s.blit(coins_txt, coins_txt.get_rect(center=(WIN_W // 2, 190)))
 
-        rows = [(it["name"], it["price"], it["desc"]) for it in PIT_ITEMS] + [("Esci", None, "")]
+        rows = [(it["name"], it["price"], it["desc"]) for it in self._pit_items()] + [("Esci", None, "")]
         y = 250
         for i, (name, price, desc) in enumerate(rows):
             selected = i == self.pitstop_cursor
@@ -1488,29 +1702,37 @@ class Race:
 
         title = self.mid_font.render("SCEGLI L'AUTO", True, LITE)
         s.blit(title, title.get_rect(center=(WIN_W // 2, 152)))
+        if self.golf_newly_unlocked and (self.anim_frame // 6) % 2 == 0:
+            banner = self.mid_font.render("GOLF CABRIO SBLOCCATA!", True, PROGRESS_DOT)
+            s.blit(banner, banner.get_rect(center=(WIN_W // 2, 178)))
         car_y = 200
-        beetle_x = WIN_W // 6 - CAR_W // 2
-        bmw_x = WIN_W // 2 - CAR_W // 2
-        volvo_x = 5 * WIN_W // 6 - VOLVO_W // 2
-        volvo_y = car_y - 8
-        s.blit(self.player_img_beetle, (beetle_x, car_y))
-        s.blit(self.player_car_bmw, (bmw_x, car_y))
-        s.blit(self.player_car_volvo, (volvo_x, volvo_y))
-        beetle_color = LITE if self.selected_car == 0 else DARK
-        bmw_color = LITE if self.selected_car == 1 else DARK
-        volvo_color = LITE if self.selected_car == 2 else DARK
-        beetle_txt = self.mid_font.render("MAGGIOLINO", True, beetle_color)
-        bmw_txt = self.mid_font.render("BMW Z3", True, bmw_color)
-        volvo_txt = self.mid_font.render("VOLVO SW", True, volvo_color)
-        s.blit(beetle_txt, beetle_txt.get_rect(center=(WIN_W // 6, car_y + CAR_H + 30)))
-        s.blit(bmw_txt, bmw_txt.get_rect(center=(WIN_W // 2, car_y + CAR_H + 30)))
-        s.blit(volvo_txt, volvo_txt.get_rect(center=(5 * WIN_W // 6, volvo_y + VOLVO_H + 30)))
-        if self.selected_car == 0:
-            pygame.draw.rect(s, LITE, (beetle_x - 12, car_y - 10, CAR_W + 24, CAR_H + 20), 3)
-        elif self.selected_car == 1:
-            pygame.draw.rect(s, LITE, (bmw_x - 12, car_y - 10, CAR_W + 24, CAR_H + 20), 3)
-        else:
-            pygame.draw.rect(s, LITE, (volvo_x - 12, volvo_y - 10, VOLVO_W + 24, VOLVO_H + 20), 3)
+        slots = [WIN_W // 8, 3 * WIN_W // 8, 5 * WIN_W // 8, 7 * WIN_W // 8]
+        cars = [
+            (self.player_img_beetle, "MAGGIOLINO", "+10% velocita'", CAR_W, CAR_H, True),
+            (self.player_car_bmw, "BMW Z3", "meno slittamento", CAR_W, CAR_H, True),
+            (self.player_car_volvo, "VOLVO SW", "-5% vel, +1 vita", VOLVO_W, VOLVO_H, True),
+            (self.player_car_golf, "GOLF CABRIO", "+20% monete", CAR_W, CAR_H, self.golf_unlocked),
+        ]
+        for i, (img, name, perk, cw, ch, unlocked) in enumerate(cars):
+            cx = slots[i]
+            cy = car_y - (ch - CAR_H) // 2
+            color = LITE if self.selected_car == i else DARK
+            if unlocked:
+                s.blit(img, (cx - cw // 2, cy))
+            else:
+                shadow_car = img.copy()
+                shadow_car.fill((70, 70, 70, 255), special_flags=pygame.BLEND_RGBA_MULT)
+                s.blit(shadow_car, (cx - cw // 2, cy))
+            name_txt = self.mid_font.render(name, True, color)
+            s.blit(name_txt, name_txt.get_rect(center=(cx, car_y + CAR_H + 30)))
+            if unlocked:
+                perk_txt = self.progress_font.render(perk, True, color)
+            else:
+                perk_txt = self.progress_font.render(
+                    "{}/{} MONETE".format(self.lifetime_coins, GOLF_UNLOCK_COINS), True, color)
+            s.blit(perk_txt, perk_txt.get_rect(center=(cx, car_y + CAR_H + 52)))
+            if self.selected_car == i:
+                pygame.draw.rect(s, LITE, (cx - cw // 2 - 12, cy - 10, cw + 24, ch + 20), 3)
         if kiosk_joy.has_stick():
             instr_txt = "Stick: scegli     Premi un tasto: gioca"
         else:
